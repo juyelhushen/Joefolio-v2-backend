@@ -1,4 +1,4 @@
-﻿name: Dependency Review
+name: Dependency Review
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Review new dependency changes
         uses: actions/dependency-review-action@v4

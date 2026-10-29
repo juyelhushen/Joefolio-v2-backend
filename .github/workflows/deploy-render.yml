@@ -1,4 +1,4 @@
-﻿name: Deploy to Render
+name: Deploy to Render
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
       contents: read
     steps:
       - name: Check out tag commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
@@ -76,7 +76,7 @@ jobs:
       contents: read
     steps:
       - name: Check out exact tag commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
