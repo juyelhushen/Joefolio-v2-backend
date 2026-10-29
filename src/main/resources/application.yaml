@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: joefolio-backend
+
+server:
+  port: ${PORT:8082}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+
+app:
+  contact:
+    email:
+      enabled: ${CONTACT_EMAIL_ENABLED:false}
+      api-key: ${RESEND_API_KEY:}
+      from: ${RESEND_FROM_EMAIL:}
+      to: ${CONTACT_TO_EMAIL:}
+
+logging:
+  #    file:
+  #      path: logs/
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} ${LOG_LEVEL_PATTERN:-%5p} %m%n"
+  #      file: "%d %-5level [%thread] %logger : %msg%n"
+  level:
+    web: error
+    root: info
+    sql: error
+    org:
+      hibernate:
+        sql: debug
+        cache:
+          spi: debug
+        type:
+          descriptor:
+            sql:
+              BasicBinder: trace

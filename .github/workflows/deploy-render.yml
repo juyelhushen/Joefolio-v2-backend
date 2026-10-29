@@ -1,0 +1,181 @@
+﻿name: Deploy to Render
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out tag commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: pom.xml
+
+      - name: Make Maven wrapper executable
+        run: chmod +x ./mvnw
+
+      - name: Validate tag and project version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid tag format: ${tag}. Expected vMAJOR.MINOR.PATCH, for example v0.1.0"
+            exit 1
+          fi
+
+          pom_version="$(./mvnw -q -DskipTests -DforceStdout help:evaluate -Dexpression=project.version)"
+          if [[ "${tag#v}" != "${pom_version}" ]]; then
+            echo "Tag version mismatch: tag is ${tag}, pom version is ${pom_version}."
+            exit 1
+          fi
+
+          git fetch origin main --depth=1
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "Tag commit ${GITHUB_SHA} is not reachable from origin/main. Rejecting release."
+            exit 1
+          fi
+
+          echo "Validated release tag ${tag} against pom version ${pom_version}."
+
+  quality:
+    needs: validate-tag
+    uses: ./.github/workflows/quality.yml
+    permissions:
+      contents: read
+
+  deploy:
+    name: Deploy tagged commit to Render
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact tag commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify Render secrets
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RENDER_API_KEY}" ]]; then
+            echo "Missing required secret: RENDER_API_KEY"
+            exit 1
+          fi
+          if [[ -z "${RENDER_SERVICE_ID}" ]]; then
+            echo "Missing required secret: RENDER_SERVICE_ID"
+            exit 1
+          fi
+
+      - name: Trigger Render deployment
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          response_file=$(mktemp)
+          status_code=$(curl --silent --show-error --location --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${RENDER_API_KEY}" \
+            --header "Content-Type: application/json" \
+            --output "${response_file}" \
+            --request POST \
+            --data "{\"commitId\":\"${GITHUB_SHA}\"}" \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys")
+
+          echo "Render API status: ${status_code}"
+          if [[ "${status_code}" -lt 200 || "${status_code}" -ge 300 ]]; then
+            echo "Render deployment request failed."
+            cat "${response_file}"
+            exit 1
+          fi
+
+          deployment_id=$(python3 - "${response_file}" <<'PY'
+          import json
+          import sys
+          data = json.load(open(sys.argv[1], encoding='utf-8'))
+          deploy_id = data.get('id') or data.get('deploy', {}).get('id')
+          if not deploy_id:
+              raise SystemExit(f"Render response did not include deployment id: {data}")
+          print(deploy_id)
+          PY
+          )
+          echo "deployment_id=${deployment_id}" >> "$GITHUB_ENV"
+          echo "Render deployment accepted for commit ${GITHUB_SHA}."
+
+      - name: Wait for Render deployment to reach live
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          deploy_id="${DEPLOYMENT_ID:-${deployment_id:-}}"
+          if [[ -z "${deploy_id}" ]]; then
+            echo "Deployment ID is missing. Render did not create a deploy."
+            exit 1
+          fi
+
+          deadline=$(( $(date +%s) + 1200 ))
+          while true; do
+            if [[ "$(date +%s)" -ge "${deadline}" ]]; then
+              echo "Render deployment timed out after 20 minutes."
+              exit 1
+            fi
+
+            response=$(curl --silent --show-error --location \
+              --header "Authorization: Bearer ${RENDER_API_KEY}" \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${deploy_id}")
+
+            status=$(printf '%s' "${response}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("status") or d.get("deploy", {}).get("status") or "").lower())')
+            echo "Render deployment status: ${status:-unknown}"
+
+            case "${status}" in
+              live)
+                echo "Render deployment reached live."
+                exit 0
+                ;;
+              failed|build_failed|canceled|cancelled|error|deployment_failed|rejected)
+                echo "Render deployment failed or was canceled."
+                echo "${response}"
+                exit 1
+                ;;
+              pending|queued|created|building|build_in_progress|in_progress|deploying|pre_deploy|waiting)
+                sleep 15
+                ;;
+              *)
+                echo "Unexpected status received; retrying."
+                sleep 15
+                ;;
+            esac
+          done
