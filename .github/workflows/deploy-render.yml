@@ -1,4 +1,4 @@
-﻿name: Deploy to Render
+name: Deploy to Render
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '25'
