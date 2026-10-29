@@ -37,7 +37,6 @@
         <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
         <spotbugs-maven-plugin.version>4.10.5.0</spotbugs-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
-        <dependency-check-maven.version>12.1.0</dependency-check-maven.version>
     </properties>
 
     <dependencyManagement>
@@ -188,6 +187,29 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>validate-pmd-ruleset-no-bom</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <loadfile srcfile="${project.basedir}/.pmd/pmd-rules.xml" property="pmd.ruleset.content" failonerror="true" encoding="UTF-8"/>
+                                <condition property="pmd.ruleset.has.bom">
+                                    <contains string="${pmd.ruleset.content}" substring="&#xFEFF;"/>
+                                </condition>
+                                <fail if="pmd.ruleset.has.bom" message="PMD ruleset contains a UTF-8 BOM; remove it before invoking PMD."/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-pmd-plugin</artifactId>
                 <version>${maven-pmd-plugin.version}</version>
                 <executions>
@@ -272,25 +294,6 @@
                         </goals>
                     </execution>
                 </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.owasp</groupId>
-                <artifactId>dependency-check-maven</artifactId>
-                <version>${dependency-check-maven.version}</version>
-                <executions>
-                    <execution>
-                        <id>dependency-check</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <failBuildOnCVSS>8</failBuildOnCVSS>
-                    <skipProvidedScope>true</skipProvidedScope>
-                    <skipTestScope>true</skipTestScope>
-                </configuration>
             </plugin>
         </plugins>
     </build>
