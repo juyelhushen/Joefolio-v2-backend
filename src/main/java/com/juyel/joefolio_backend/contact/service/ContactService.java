@@ -23,56 +23,68 @@ public class ContactService {
   public void submit(ContactRequest request) {
     validateConfiguration();
 
-    var emailRequest =
-        new ResendEmailRequest(
-            properties.from(),
-            List.of(properties.to()),
-            request.subject(),
-            request.email(),
-            """
-                        New contact message from your Joefolio portfolio.
-
-                        Name: %s
-                        Email: %s
-                        Subject: %s
-
-                        Message:
-                        %s
-                        """
-                .formatted(request.name(), request.email(), request.subject(), request.body()));
-
     try {
       ResendEmailResponse response =
-          resendClient.sendEmail("Bearer " + properties.apiKey(), emailRequest);
-
-      if (response == null || !StringUtils.hasText(response.id())) {
-        throw ContactDeliveryUnavailableException.invalidResponse(
-            "Resend did not return a valid delivery id.");
-      }
-
-      log.info("Resend accepted a Joefolio contact email.");
+          resendClient.sendEmail("Bearer " + properties.apiKey(), buildEmailRequest(request));
+      validateResponse(response);
+      logAcceptedEmail();
     } catch (FeignException exception) {
-      if (exception.status() >= 0) {
+      handleFeignException(exception);
+    }
+  }
+
+  private ResendEmailRequest buildEmailRequest(ContactRequest request) {
+    String body =
+        String.join(
+            System.lineSeparator(),
+            "New contact message from your Joefolio portfolio.",
+            "",
+            "Name: " + request.name(),
+            "Email: " + request.email(),
+            "Subject: " + request.subject(),
+            "",
+            "Message:",
+            request.body());
+
+    return new ResendEmailRequest(
+        properties.from(), List.of(properties.to()), request.subject(), request.email(), body);
+  }
+
+  private void validateResponse(ResendEmailResponse response) {
+    if (response == null || !StringUtils.hasText(response.id())) {
+      throw ContactDeliveryUnavailableException.invalidResponse(
+          "Resend did not return a valid delivery id.");
+    }
+  }
+
+  private void handleFeignException(FeignException exception) {
+    if (exception.status() >= 0) {
+      if (log.isWarnEnabled()) {
         log.warn(
             "Resend API failure detected: category={}, httpStatus={}, reason={}.",
             ContactDeliveryUnavailableException.FailureCategory.RESEND_API,
             exception.status(),
             classifyFeignFailure(exception.status()));
-        throw ContactDeliveryUnavailableException.upstreamFailure(exception.status());
       }
+      throw ContactDeliveryUnavailableException.upstreamFailure(exception.status());
+    }
 
-      Throwable rootCause = deepestCause(exception);
-      String rootCauseClass =
-          rootCause == null
-              ? exception.getClass().getSimpleName()
-              : rootCause.getClass().getSimpleName();
-      String rootCauseMessage = rootCause == null ? exception.getMessage() : rootCause.getMessage();
+    Throwable rootCause = deepestCause(exception);
+    String rootCauseClass = rootCause.getClass().getSimpleName();
+    String rootCauseMessage = rootCause.getMessage();
+    if (log.isWarnEnabled()) {
       log.warn(
           "Resend transport failure detected: category={}, causeType={}, causeMessage={}.",
           ContactDeliveryUnavailableException.FailureCategory.NETWORK,
           rootCauseClass,
           rootCauseMessage);
-      throw ContactDeliveryUnavailableException.networkFailure(rootCause);
+    }
+    throw ContactDeliveryUnavailableException.networkFailure(rootCause);
+  }
+
+  private void logAcceptedEmail() {
+    if (log.isInfoEnabled()) {
+      log.info("Resend accepted a Joefolio contact email.");
     }
   }
 

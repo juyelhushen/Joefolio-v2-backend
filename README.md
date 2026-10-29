@@ -29,7 +29,6 @@ The following tools are enforced in the Maven verify lifecycle:
 - PMD
 - SpotBugs
 - JaCoCo coverage enforcement
-- OWASP Dependency-Check
 
 Formatting can be applied locally with:
 

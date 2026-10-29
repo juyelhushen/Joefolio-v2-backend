@@ -9,4 +9,8 @@ public record ResendEmailRequest(
     String subject,
     @JsonProperty("reply_to") String replyTo,
     String text) {
+
+  public ResendEmailRequest {
+    to = List.copyOf(to);
+  }
 }
