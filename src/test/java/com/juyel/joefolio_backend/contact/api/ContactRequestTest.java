@@ -18,7 +18,11 @@ class ContactRequestTest {
 
       ContactRequest request =
           new ContactRequest(
-              "Joe", "joe@example.com", "I would like to discuss an opportunity.", "body");
+              "Joe",
+              "joe@example.com",
+              "I would like to discuss an opportunity.",
+              "body",
+              "https://example.com");
 
       assertTrue(validator.validate(request).isEmpty());
     }
@@ -30,7 +34,8 @@ class ContactRequestTest {
 
       Validator validator = factory.getValidator();
 
-      ContactRequest request = new ContactRequest("   ", "joe@example.com", "Hello", "body");
+      ContactRequest request =
+          new ContactRequest("   ", "joe@example.com", "Hello", "body", "https://example.com");
 
       assertFalse(validator.validate(request).isEmpty());
     }
@@ -42,7 +47,21 @@ class ContactRequestTest {
 
       Validator validator = factory.getValidator();
 
-      ContactRequest request = new ContactRequest("Joe", "not-an-email", "Hello", "body");
+      ContactRequest request =
+          new ContactRequest("Joe", "not-an-email", "Hello", "body", "https://example.com");
+
+      assertFalse(validator.validate(request).isEmpty());
+    }
+  }
+
+  @Test
+  void shouldRejectBlankSubject() {
+    try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+
+      Validator validator = factory.getValidator();
+
+      ContactRequest request =
+          new ContactRequest("Joe", "joe@example.com", "   ", "body", "https://example.com");
 
       assertFalse(validator.validate(request).isEmpty());
     }
@@ -54,7 +73,8 @@ class ContactRequestTest {
 
       Validator validator = factory.getValidator();
 
-      ContactRequest request = new ContactRequest("Joe", "joe@example.com", "   ", "body");
+      ContactRequest request =
+          new ContactRequest("Joe", "joe@example.com", "Hello", "   ", "https://example.com");
 
       assertFalse(validator.validate(request).isEmpty());
     }
@@ -67,7 +87,22 @@ class ContactRequestTest {
       Validator validator = factory.getValidator();
 
       ContactRequest request =
-          new ContactRequest("Joe", "joe@example.com", "a".repeat(2001), "body");
+          new ContactRequest(
+              "Joe", "joe@example.com", "Hello", "a".repeat(5001), "https://example.com");
+
+      assertFalse(validator.validate(request).isEmpty());
+    }
+  }
+
+  @Test
+  void shouldRejectWebsiteExceedingMaximumLength() {
+    try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+
+      Validator validator = factory.getValidator();
+
+      ContactRequest request =
+          new ContactRequest(
+              "Joe", "joe@example.com", "Hello", "body", "https://example.com/" + "a".repeat(200));
 
       assertFalse(validator.validate(request).isEmpty());
     }

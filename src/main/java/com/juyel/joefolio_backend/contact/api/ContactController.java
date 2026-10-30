@@ -22,8 +22,17 @@ public class ContactController {
   @PostMapping
   public ResponseEntity<ContactResponse> submit(@Valid @RequestBody ContactRequest request) {
 
+    // Silently ignore automated submissions caught by the honeypot.
+    if (request.website() != null && !request.website().isBlank()) {
+      return acceptedResponse();
+    }
+
     contactService.submit(request);
 
+    return acceptedResponse();
+  }
+
+  private ResponseEntity<ContactResponse> acceptedResponse() {
     return ResponseEntity.status(HttpStatus.ACCEPTED)
         .body(new ContactResponse("Your message has been sent."));
   }
