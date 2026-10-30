@@ -18,6 +18,7 @@ import feign.FeignException;
 import feign.Request;
 import feign.Response;
 import feign.RetryableException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import javax.net.ssl.SSLHandshakeException;
@@ -48,7 +49,11 @@ public class ContactServiceTest {
   void shouldSendContactEmailWithExpectedDetails() {
     ContactRequest request =
         new ContactRequest(
-            "Joe", "visitor@example.com", "Job opportunity", "I would like to discuss a role.");
+            "Joe",
+            "visitor@example.com",
+            "Job opportunity",
+            "I would like to discuss a role.",
+            "https://example.com");
     String expectedAuthorization = "Bearer " + enabledProperties.apiKey();
 
     when(resendClient.sendEmail(eq(expectedAuthorization), any(ResendEmailRequest.class)))
@@ -76,7 +81,8 @@ public class ContactServiceTest {
         new ContactService(resendClient, new ContactEmailProperties(false, "", "", ""));
 
     ContactRequest request =
-        new ContactRequest("Joe", "visitor@example.com", "Hello", "Test message");
+        new ContactRequest(
+            "Joe", "visitor@example.com", "Hello", "Test message", "https://example.com");
 
     assertThrows(ContactDeliveryUnavailableException.class, () -> disabledService.submit(request));
 
@@ -84,9 +90,72 @@ public class ContactServiceTest {
   }
 
   @Test
+  void shouldRejectRequestWhenRequiredConfigurationIsMissing() {
+    ContactService incompleteService =
+        new ContactService(resendClient, new ContactEmailProperties(true, " ", " ", " "));
+
+    ContactRequest request =
+        new ContactRequest(
+            "Joe", "visitor@example.com", "Hello", "Test message", "https://example.com");
+
+    assertThrows(
+        ContactDeliveryUnavailableException.class, () -> incompleteService.submit(request));
+    verify(resendClient, never()).sendEmail(any(String.class), any(ResendEmailRequest.class));
+  }
+
+  @Test
+  void shouldClassifyFeignFailuresAndReturnDeepestCause() throws Exception {
+    Method classify = ContactService.class.getDeclaredMethod("classifyFeignFailure", int.class);
+    classify.setAccessible(true);
+
+    assertEquals(
+        "Resend rejected the API key or authentication.", classify.invoke(contactService, 401));
+    assertEquals("Resend rejected the sender or API access.", classify.invoke(contactService, 403));
+    assertEquals(
+        "Resend rejected the request payload or recipient details.",
+        classify.invoke(contactService, 400));
+    assertEquals(
+        "Resend rejected the request payload or recipient details.",
+        classify.invoke(contactService, 422));
+    assertEquals("Resend returned an upstream error.", classify.invoke(contactService, 500));
+
+    Method deepestCause = ContactService.class.getDeclaredMethod("deepestCause", Throwable.class);
+    deepestCause.setAccessible(true);
+
+    RuntimeException root = new RuntimeException("root cause");
+    RuntimeException intermediate = new RuntimeException("mid", root);
+    RuntimeException top = new RuntimeException("top", intermediate);
+
+    assertEquals(root, deepestCause.invoke(contactService, top));
+
+    RuntimeException single = new RuntimeException("single");
+    assertEquals(single, deepestCause.invoke(contactService, single));
+  }
+
+  @Test
+  void shouldExposeConfigurationAndNullNetworkFailureDetails() {
+    ContactDeliveryUnavailableException configFailure = new ContactDeliveryUnavailableException();
+    assertEquals(
+        ContactDeliveryUnavailableException.FailureCategory.CONFIGURATION,
+        configFailure.getCategory());
+    assertEquals(null, configFailure.getUpstreamStatus());
+    assertEquals(null, configFailure.getRootCauseClass());
+    assertEquals(null, configFailure.getRootCauseMessage());
+
+    ContactDeliveryUnavailableException nullNetworkFailure =
+        ContactDeliveryUnavailableException.networkFailure(null);
+    assertEquals(
+        ContactDeliveryUnavailableException.FailureCategory.NETWORK,
+        nullNetworkFailure.getCategory());
+    assertEquals("unknown", nullNetworkFailure.getRootCauseClass());
+    assertEquals(null, nullNetworkFailure.getRootCauseMessage());
+  }
+
+  @Test
   void shouldRejectResponseWithoutEmailId() {
     ContactRequest request =
-        new ContactRequest("Joe", "visitor@example.com", "Hello", "Test message");
+        new ContactRequest(
+            "Joe", "visitor@example.com", "Hello", "Test message", "https://example.com");
     String expectedAuthorization = "Bearer " + enabledProperties.apiKey();
 
     when(resendClient.sendEmail(eq(expectedAuthorization), any(ResendEmailRequest.class)))
@@ -98,7 +167,8 @@ public class ContactServiceTest {
   @Test
   void shouldRejectResendApiAuthenticationFailure() {
     ContactRequest request =
-        new ContactRequest("Joe", "visitor@example.com", "Hello", "Test message");
+        new ContactRequest(
+            "Joe", "visitor@example.com", "Hello", "Test message", "https://example.com");
     String expectedAuthorization = "Bearer " + enabledProperties.apiKey();
 
     when(resendClient.sendEmail(eq(expectedAuthorization), any(ResendEmailRequest.class)))
@@ -131,7 +201,8 @@ public class ContactServiceTest {
   @Test
   void shouldRejectResendTransportFailure() {
     ContactRequest request =
-        new ContactRequest("Joe", "visitor@example.com", "Hello", "Test message");
+        new ContactRequest(
+            "Joe", "visitor@example.com", "Hello", "Test message", "https://example.com");
     String expectedAuthorization = "Bearer " + enabledProperties.apiKey();
     Request feignRequest =
         Request.create(
