@@ -2,6 +2,8 @@ FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 
 COPY .mvn/ .mvn/
+COPY .pmd/ .pmd/
+COPY .checkstyle/ .checkstyle/
 COPY mvnw pom.xml ./
 RUN chmod +x ./mvnw && ./mvnw --batch-mode --no-transfer-progress dependency:go-offline
 
